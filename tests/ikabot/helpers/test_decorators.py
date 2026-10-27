@@ -102,3 +102,31 @@ class TestDecorators(unittest.TestCase):
 
         interrupted_feature(self.session, self.event, None, [])
         self.assertTrue(self.event.is_set())
+
+    @patch("ikabot.helpers.decorators.set_child_mode")
+    def test_config_saved_to_process_list(self, _mock_set_child_mode):
+        store = {
+            "processList": [
+                {
+                    "pid": os.getpid(),
+                    "action": "saved_cfg_feature",
+                    "status": "started",
+                }
+            ]
+        }
+        self.session.getSessionData.side_effect = lambda: store
+        self.session.setSessionData.side_effect = lambda d: store.update(d)
+
+        @task("saved_cfg_feature")
+        def saved_cfg_task(session, minutes, coords):
+            pass
+
+        @configurator
+        def saved_cfg_feature(session, event, stdin_fd, predetermined_input):
+            return {"session": session, "minutes": 20, "coords": (12, 34)}
+
+        saved_cfg_feature(self.session, self.event, None, [])
+        self.assertEqual(
+            store["processList"][0]["config"],
+            {"minutes": 20, "coords": [12, 34]},
+        )

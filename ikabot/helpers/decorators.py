@@ -45,6 +45,8 @@ Usage
 """
 
 import functools
+import json
+import time
 import os
 import sys
 import traceback
@@ -59,6 +61,38 @@ from ikabot.helpers.signals import setInfoSignal
 # Maps configurator function name -> task wrapper function.
 # Populated by the @task decorator at import time.
 _TASK_REGISTRY = {}
+
+
+def _save_task_config(session, action_name, result):
+    """Persist the task's JSON-serializable config dict onto its processList entry."""
+    try:
+        clean_config = json.loads(
+            json.dumps({k: v for k, v in result.items() if k != "session"}, default=list)
+        )
+        session_data = session.getSessionData()
+        if not isinstance(session_data, dict):
+            return
+        file_list = session_data.get("processList", [])
+        my_pid = os.getpid()
+        matched = False
+        for proc in file_list:
+            if proc.get("pid") == my_pid:
+                proc["config"] = clean_config
+                matched = True
+        if not matched:
+            file_list.append(
+                {
+                    "pid": my_pid,
+                    "action": action_name,
+                    "date": time.time(),
+                    "status": "started",
+                    "config": clean_config,
+                }
+            )
+        session_data["processList"] = file_list
+        session.setSessionData(session_data)
+    except Exception:
+        pass
 
 
 def _send_error(session, info, exc_text):
@@ -194,6 +228,8 @@ def configurator(_func=None, *, blocking=False):
                 # config-only (this is a programming error, but fail safe)
                 event.set()
                 return
+
+            _save_task_config(session, func.__name__, result)
 
             if blocking:
                 # Blocking mode: run the task, THEN release the CLI
